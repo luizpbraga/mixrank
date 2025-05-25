@@ -2,6 +2,7 @@ import csv
 import sys
 import asyncio
 import httpx
+import logging
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
@@ -13,6 +14,14 @@ class Crawler:
         self.semaphore = asyncio.Semaphore(workers)
         self.timeout = 10
         self.writer = csv.writer(sys.stdout)
+
+        # LOGS
+        logging.basicConfig(level=logging.INFO)
+        self.logger = logging.getLogger(__name__)
+
+        # TODO: Let's try not to be blocked
+        # self.user_agents = []
+        # self.retry = 3
 
     async def __aenter__(self):
         """Async context manager entry"""
@@ -29,19 +38,7 @@ class Crawler:
         if self.client:
             await self.client.aclose()
 
-    async def fetch_page(self, url):
-        await asyncio.sleep(0.5)
-        try:
-            response = await self.client.get(url)
-            response.raise_for_status()
-            return response.text
-
-        # TODO: use logs; more robust error handling
-        except Exception as e:
-            print(f"ERROR: fetching {url}: {e}")
-
-        return None
-
+    # TODO: Implement data validation
     def parse(self, url, html):
         soup = BeautifulSoup(html, "html.parser")
 
@@ -51,9 +48,7 @@ class Crawler:
         # alem de src, tem: srcset data-src, data-srcet, data-lazy, dala-origin
         # img = soup.find("img", src=self.regex)
         # img = soup.select_one('img[src*="logo"], img[alt*="logo"], img[class*="logo"]')
-        img = soup.select_one(
-            """ img[src*="logo"], img[alt*="logo"], img[class*="logo"] """
-        )
+        img = soup.select_one('img[src*="logo"], img[alt*="logo"], img[class*="logo"]')
         if img:
             src = img.get("src", None)
             if src:
@@ -75,34 +70,48 @@ class Crawler:
             href = link.get("href", None)
             if href:
                 favicon_url = urljoin(url, href)
+                
+        self.logger.info( f"[OK] {url} -> logo: {logo_url}, favicon: {favicon_url}")
+        return (url, logo_url, favicon_url)
 
-        return (logo_url, favicon_url)
+    # TODO: Implement fetch with retry logic
+    # TODO: Implement erros rotations
+    async def fetch(self, url):
+        await asyncio.sleep(0.5)
+        try:
+            response = await self.client.get(url)
+            response.raise_for_status()
+            return response.text
+        except Exception as e:
+            self.logger.error(f"Failed to fetch {url}: {e}")
+            # self.logger.warning(f"[ERROR] {url} -> {e}")
 
     async def fetch_and_parse(self, url):
         async with self.semaphore:
+            html = await self.fetch(url)
+            if html is None:
+                return
+
             try:
-                response = await self.client.get(url)
-                response.raise_for_status()
-
-                html = response.text
-                if html is None:
-                    return
-
-                title = self.parse(url, html)
-                print(f"[OK] {url} -> {title}")
-                # return {"url": url, "title": title, "html": html}
-
+                return self.parse(url, html)
             except Exception as e:
-                print(f"[ERROR] {url} -> {e}")
+                self.logger.error(f"Parsing {url} -> {e}")
                 return None
 
 
 async def main():
     urls = [f"https://{line.strip()}" for line in sys.stdin if line.strip()]
 
-    async with Crawler(10) as crawler:
+    workers = 10
+    async with Crawler(workers) as crawler:
         tasks = [asyncio.create_task(crawler.fetch_and_parse(url)) for url in urls]
-        await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        crawler.writer.writerow(["url", "logo_url", "favicon_url"])
+        for result in results:
+            if isinstance(result, tuple):
+                url, logo_url, favicon_url = result
+                crawler.writer.writerow([url, logo_url, favicon_url])
 
 
 if __name__ == "__main__":
