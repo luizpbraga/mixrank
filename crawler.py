@@ -17,7 +17,6 @@ class Crawler:
     - Multiple logo detection strategies with fallbacks
     - Built-in metrics collection for monitoring
     - Structured logging for debugging
-    - Streaming CSV output for memory efficiency
     """
 
     class Metrics:
@@ -80,7 +79,7 @@ class Crawler:
             found = self.stats["logos_found"]
 
             logger.info(
-                f"Processing Complete - {total} domains processed in {runtime} sec"
+                f"Processing Complete - {total} domains processed in {runtime:.1f} sec"
             )
             logger.info(
                 f"Logo Discovery Rate: {found}/{total} ({found/total*100:.1f}% success)"
@@ -99,12 +98,13 @@ class Crawler:
                     count = self.stats[error_type]
                     logger.info(f"  {error_type}: {count} ({count/total*100:.1f}%)")
 
-    def __init__(self, workers=10):
+    def __init__(self, workers=10, batch_size = 100):
         """
         Initialize crawler with configurable concurrency and monitoring.
         """
         self.workers = workers
         self.client = None
+        self.batch_size = batch_size
         # Control concurrent requests
         self.semaphore = asyncio.Semaphore(workers)
         # HTTP request timeout in seconds
@@ -356,7 +356,6 @@ async def main():
 
     Output Format:
     - CSV with headers: url, logo_url, favicon_url
-    - Streams results to stdout for memory efficiency
     - Empty strings for missing logos/favicons (I don't like null values)
 
     Future Improvements:

@@ -40,12 +40,10 @@ detection strategies with fallback logic to maximize logo discovery rates.
     - HTTP client with connection pooling and redirect handling
     - Multi-strategy HTML parsing with BeautifulSoup
     - Built-in metrics collection and logging
-    - Streaming CSV output for memory efficiency
 
 ## Performance Characteristics:
     - Default 10 concurrent workers with 0.5s delay between requests
     - Connection pooling reuses HTTP connections for efficiency
-    - Memory-efficient streaming processing (no bulk storage)
     - Rate limiting to be respectful to target servers
 
 ## Quality Approach:
