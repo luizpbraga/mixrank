@@ -50,7 +50,7 @@ detection strategies with fallback logic to maximize logo discovery rates.
     - Multiple parsing strategies increase recall (finding more logos)
     - Fallback from specific to general selectors
     - URL validation through urljoin for proper absolute URLs
-    - Structured error handling and metrics for monitoring precision
+    - Error handling and metrics for monitoring precision
 
 ## Scaling Considerations for Production:
     1. Distributed Processing: Partition domains across multiple crawler instances
@@ -60,3 +60,4 @@ detection strategies with fallback logic to maximize logo discovery rates.
     5. Quality Validation: Check logo accessibility and dimensions
     6. Monitoring: Comprehensive metrics, alerting, and health checks
     7. Configuration: External config for timeouts, selectors, workers
+    8. Streaming mechanism

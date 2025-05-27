@@ -13,10 +13,10 @@ class Crawler:
     Asynchronous web crawler for logo and favicon extraction.
 
     Features:
-    - Controlled concurrency to prevent overwhelming target servers
+    - Concurrency to prevent overwhelming target servers
     - Multiple logo detection strategies with fallbacks
     - Built-in metrics collection for monitoring
-    - Structured logging for debugging
+    - Logging for debugging
     """
 
     class Metrics:
@@ -110,7 +110,7 @@ class Crawler:
         self.timeout = 10
         self.writer = csv.writer(sys.stdout)
 
-        # Structured logging for operational visibility
+        # Logging
         logging.basicConfig(
             level=logging.INFO,
             format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -245,7 +245,6 @@ class Crawler:
         self.logger.info(f"Parsed {url} -> Logo: {logo_url}, Favicon: {favicon_url}")
         return (logo_url, favicon_url)
 
-
     async def fetch(self, url):
         """
         Fetch HTML content with rate limiting and error handling.
@@ -263,12 +262,12 @@ class Crawler:
            - Adaptive delays based on server response times
            - Deal with cookies and JavaScript
         """
-        # Basic rate limiting - be respectful to target servers
+        # Basic rate limiting
         await asyncio.sleep(0.5)
 
         try:
             response = await self.client.get(url)
-            response.raise_for_status()  # Raise exception for HTTP error status
+            response.raise_for_status()
             return response.text
 
         except httpx.TimeoutException as e:
@@ -350,8 +349,7 @@ async def main():
 
     Concurrent Processing:
     - Creates async tasks for all domains upfront
-    - Uses asyncio.gather() for coordinated parallel execution
-    - Maintains result order for predictable CSV output
+    - Uses asyncio.gather() for parallel execution
 
     Output Format:
     - CSV with headers: url, logo_url, favicon_url
@@ -375,6 +373,12 @@ async def main():
        - Sample validation of extracted logos
        - Precision/recall measurement against known good data
        - Confidence scoring in output
+
+    5. Async (BIG PROBLEM):
+       - The program loads all asynchronous tasks at once. This can cause
+        problems such as excessive memory usage. The idea would be to create
+        batches of domains, placing the asynchronous tasks in a queue, and
+        return (in this case writing the line to the CSV) as soon as the task finishes
     """
     # Read and prepare domain list from stdin
     # Convert bare domains to HTTPS URLs for consistency
@@ -384,11 +388,13 @@ async def main():
         logging.warning("No domains provided on stdin")
         return
 
-    # Process all domains concurrently with controlled parallelism
+    # Process all domains concurrently with parallelism (90% true)
     workers = 10
     async with Crawler(workers) as crawler:
-        # Create async tasks for all (!) URLs upfront
-        tasks = [asyncio.create_task(crawler.fetch_and_parse(domain)) for domain in domains]
+        # Create async tasks for all (!) URLs UPFRONT (!)
+        tasks = [
+            asyncio.create_task(crawler.fetch_and_parse(domain)) for domain in domains
+        ]
 
         # Execute all (!) tasks concurrently
         results = await asyncio.gather(*tasks, return_exceptions=True)
