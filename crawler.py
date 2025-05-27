@@ -98,13 +98,12 @@ class Crawler:
                     count = self.stats[error_type]
                     logger.info(f"  {error_type}: {count} ({count/total*100:.1f}%)")
 
-    def __init__(self, workers=10, batch_size = 100):
+    def __init__(self, workers=10):
         """
         Initialize crawler with configurable concurrency and monitoring.
         """
         self.workers = workers
         self.client = None
-        self.batch_size = batch_size
         # Control concurrent requests
         self.semaphore = asyncio.Semaphore(workers)
         # HTTP request timeout in seconds
@@ -386,15 +385,15 @@ async def main():
         return
 
     # Process all domains concurrently with controlled parallelism
-    workers = 10  # Balance throughput vs server politeness
+    workers = 10
     async with Crawler(workers) as crawler:
-        # Create async tasks for all URLs upfront
+        # Create async tasks for all (!) URLs upfront
         tasks = [asyncio.create_task(crawler.fetch_and_parse(domain)) for domain in domains]
 
-        # Execute all tasks concurrently, handling exceptions gracefully
+        # Execute all (!) tasks concurrently
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Output CSV with headers for structured data
+        # Output CSV with headers
         crawler.writer.writerow(["domain", "logo_url", "favicon_url"])
 
         # Write successful results to CSV, skip failures
