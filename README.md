@@ -1,5 +1,3 @@
->> NOTE: check the [new-async-design](https://github.com/luizpbraga/mixrank/tree/new-async-design) brach for a more interesting implementation. 
-
 # Overview
 
 A technical interview project for data engineers.
@@ -62,4 +60,3 @@ detection strategies with fallback logic to maximize logo discovery rates.
     5. Quality Validation: Check logo accessibility and dimensions
     6. Monitoring: Comprehensive metrics, alerting, and health checks
     7. Configuration: External config for timeouts, selectors, workers
-    8. Streaming mechanism

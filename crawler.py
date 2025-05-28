@@ -388,22 +388,14 @@ async def main():
        - Sample validation of extracted logos
        - Precision/recall measurement against known good data
        - Confidence scoring in output
-
-    5. Async (BIG PROBLEM):
-       - The program loads all asynchronous tasks at once. This can cause
-        problems such as excessive memory usage. The idea would be to create
-        batches of domains, placing the asynchronous tasks in a queue, and
-        return (in this case writing the line to the CSV) as soon as the task finishes
     """
     # Read and prepare domain list from stdin
     # Convert bare domains to HTTPS URLs for consistency
     domains = set(line.strip() for line in sys.stdin if line.strip())
-
     if not domains:
         logging.warning("No domains provided on stdin")
         return
 
-    # Process all domains concurrently with parallelism (90% true)
     request_limit = 10
     async with Crawler(request_limit) as crawler:
 
@@ -420,7 +412,7 @@ async def main():
         # Process all URL
         await crawler.url_queue.join()
 
-        # stop Writing
+        # Stop Writing
         await crawler.csv_queue.put(None)
         await crawler.csv_queue.join()
 
