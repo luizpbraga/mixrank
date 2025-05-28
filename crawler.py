@@ -1,10 +1,11 @@
-import time
-import csv
-import sys
 import asyncio
-import httpx
+import csv
 import logging
+import sys
+import time
 from urllib.parse import urljoin
+
+import httpx
 from bs4 import BeautifulSoup
 
 
@@ -98,14 +99,17 @@ class Crawler:
                     count = self.stats[error_type]
                     logger.info(f"  {error_type}: {count} ({count/total*100:.1f}%)")
 
-    def __init__(self, workers=10):
+    def __init__(self, request_limit=10):
         """
         Initialize crawler with configurable concurrency and monitoring.
         """
-        self.workers = workers
+        self.url_queue = asyncio.Queue()
+        self.csv_queue = asyncio.Queue()
+
+        self.request_limit = request_limit
         self.client = None
         # Control concurrent requests
-        self.semaphore = asyncio.Semaphore(workers)
+        self.semaphore = asyncio.Semaphore(request_limit)
         # HTTP request timeout in seconds
         self.timeout = 10
         self.writer = csv.writer(sys.stdout)
@@ -139,7 +143,7 @@ class Crawler:
         - Implement retry logic pattern for failing domains
         """
         self.client = httpx.AsyncClient(
-            limits=httpx.Limits(max_connections=self.workers),
+            limits=httpx.Limits(max_connections=self.request_limit),
             timeout=self.timeout,
             follow_redirects=True,
         )
@@ -264,28 +268,28 @@ class Crawler:
         """
         # Basic rate limiting
         await asyncio.sleep(0.5)
+        async with self.semaphore:
+            try:
+                response = await self.client.get(url)
+                response.raise_for_status()
+                return response.text
 
-        try:
-            response = await self.client.get(url)
-            response.raise_for_status()
-            return response.text
+            except httpx.TimeoutException as e:
+                self.logger.error(f"Timeout fetching {url}: {e}")
+                self.metrics.record_error("timeout_error")
+            except httpx.HTTPStatusError as e:
+                self.logger.error(f"HTTP error {e.response.status_code} for {url}: {e}")
+                self.metrics.record_error("http_error")
+            except httpx.NetworkError as e:
+                self.logger.error(f"Network error fetching {url}: {e}")
+                self.metrics.record_error("network_error")
+            except Exception as e:
+                self.logger.error(f"Unexpected error fetching {url}: {e}")
+                self.metrics.record_error("unknown_error")
 
-        except httpx.TimeoutException as e:
-            self.logger.error(f"Timeout fetching {url}: {e}")
-            self.metrics.record_error("timeout_error")
-        except httpx.HTTPStatusError as e:
-            self.logger.error(f"HTTP error {e.response.status_code} for {url}: {e}")
-            self.metrics.record_error("http_error")
-        except httpx.NetworkError as e:
-            self.logger.error(f"Network error fetching {url}: {e}")
-            self.metrics.record_error("network_error")
-        except Exception as e:
-            self.logger.error(f"Unexpected error fetching {url}: {e}")
-            self.metrics.record_error("unknown_error")
+            return None
 
-        return None
-
-    async def fetch_and_parse(self, domain):
+    async def fetch_and_parse(self):
         """
         Main processing pipeline: fetch URL and extract logo information.
 
@@ -317,25 +321,36 @@ class Crawler:
            - Share cache across crawler instances
         """
 
-        url = f"https://{domain}"
         # Control concurrent request load
-        async with self.semaphore:
-            # Fetch HTML content with error handling and rate limiting
-            html = await self.fetch(url)
-            if html is None:
-                # Fetch failed, logged in fetch()
-                return None
-
+        while True:
+            domain = await self.url_queue.get()
+            url = f"https://{domain}"
             try:
-                # Parse HTML to extract logo and favicon URLs
-                logo_url, favicon_url = self.parse(url, html)
-                return (domain, logo_url, favicon_url)
-
+                # Fetch HTML content with error handling and rate limiting
+                html = await self.fetch(url)
+                if html is not None:
+                    # Parse HTML to extract logo and favicon URLs
+                    logo_url, favicon_url = self.parse(url, html)
+                    await self.csv_queue.put((domain, logo_url, favicon_url))
             except Exception as e:
                 # Parsing errors are separate from network errors
                 self.logger.error(f"Failed to parse {url}: {e}")
                 self.metrics.record_error("parse_error")
-                return None
+            finally:
+                self.url_queue.task_done()
+
+    async def writer_csv(self):
+        self.writer.writerow(["domain", "logo_url", "favicon_url"])
+        # Write successful results to CSV, skip failures
+        while True:
+            result = await self.csv_queue.get()
+
+            if result is None:
+                self.csv_queue.task_done()
+                break
+
+            self.writer.writerow(result)
+            self.csv_queue.task_done()
 
 
 async def main():
@@ -389,24 +404,29 @@ async def main():
         return
 
     # Process all domains concurrently with parallelism (90% true)
-    workers = 10
-    async with Crawler(workers) as crawler:
-        # Create async tasks for all (!) URLs UPFRONT (!)
-        tasks = [
-            asyncio.create_task(crawler.fetch_and_parse(domain)) for domain in domains
+    request_limit = 10
+    async with Crawler(request_limit) as crawler:
+
+        for domain in domains:
+            crawler.url_queue.put_nowait(domain)
+
+        work_tasks = [
+            asyncio.create_task(crawler.fetch_and_parse()) for _ in range(100)
         ]
 
-        # Execute all (!) tasks concurrently
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Start the writer
+        writer_task = asyncio.create_task(crawler.writer_csv())
 
-        # Output CSV with headers
-        crawler.writer.writerow(["domain", "logo_url", "favicon_url"])
+        # Process all URL
+        await crawler.url_queue.join()
 
-        # Write successful results to CSV, skip failures
-        for result in results:
-            if isinstance(result, tuple):
-                crawler.writer.writerow(result)
-            # Failed results are already logged, just skip from CSV output
+        # stop Writing
+        await crawler.csv_queue.put(None)
+        await crawler.csv_queue.join()
+
+        for t in work_tasks:
+            t.cancel()
+        writer_task.cancel()
 
 
 if __name__ == "__main__":
