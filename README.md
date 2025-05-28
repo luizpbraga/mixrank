@@ -1,3 +1,5 @@
+>> NOTE: check the [new-async-design](https://github.com/luizpbraga/mixrank/tree/new-async-design) brach for a more interesting implementation. 
+
 # Overview
 
 A technical interview project for data engineers.
